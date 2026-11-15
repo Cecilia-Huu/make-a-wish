@@ -174,12 +174,12 @@ function App(){
     try{
       const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:960},height:{ideal:720}},audio:false});cameraStream.current=stream
       if(!video.current)throw new Error('视频容器尚未就绪');video.current.srcObject=stream;await video.current.play()
-      const vision=await FilesetResolver.forVisionTasks('/wasm')
+      const vision=await FilesetResolver.forVisionTasks(`${import.meta.env.BASE_URL}wasm`)
       const opts=(path:string,delegate:'GPU'|'CPU')=>({baseOptions:{modelAssetPath:path,delegate},runningMode:'VIDEO' as const,numHands:2,minHandDetectionConfidence:.56,minTrackingConfidence:.55})
-      try{recognizer.current=await GestureRecognizer.createFromOptions(vision,opts('/models/gesture_recognizer.task','GPU'))}
-      catch{try{recognizer.current=await GestureRecognizer.createFromOptions(vision,opts('/models/gesture_recognizer.task','CPU'))}catch{
-        try{landmarker.current=await HandLandmarker.createFromOptions(vision,opts('/models/hand_landmarker.task','GPU'))}
-        catch{landmarker.current=await HandLandmarker.createFromOptions(vision,opts('/models/hand_landmarker.task','CPU'))}
+      try{recognizer.current=await GestureRecognizer.createFromOptions(vision,opts(`${import.meta.env.BASE_URL}models/gesture_recognizer.task`,'GPU'))}
+      catch{try{recognizer.current=await GestureRecognizer.createFromOptions(vision,opts(`${import.meta.env.BASE_URL}models/gesture_recognizer.task`,'CPU'))}catch{
+        try{landmarker.current=await HandLandmarker.createFromOptions(vision,opts(`${import.meta.env.BASE_URL}models/hand_landmarker.task`,'GPU'))}
+        catch{landmarker.current=await HandLandmarker.createFromOptions(vision,opts(`${import.meta.env.BASE_URL}models/hand_landmarker.task`,'CPU'))}
       }}
       if(generation!==cameraGeneration.current){recognizer.current?.close();landmarker.current?.close();return}
       setHandMode(recognizer.current?'ILoveYou 分类已就绪':'仅关键点模式 · 双手爱心不可用')
@@ -188,7 +188,7 @@ function App(){
       setFaceStatus('加载中')
       void (async()=>{try{
         let model:FaceLandmarker
-        const faceOptions=(delegate:'GPU'|'CPU')=>({baseOptions:{modelAssetPath:'/models/face_landmarker.task',delegate},runningMode:'VIDEO' as const,numFaces:1,outputFaceBlendshapes:true,minFaceDetectionConfidence:.56,minTrackingConfidence:.55})
+        const faceOptions=(delegate:'GPU'|'CPU')=>({baseOptions:{modelAssetPath:`${import.meta.env.BASE_URL}models/face_landmarker.task`,delegate},runningMode:'VIDEO' as const,numFaces:1,outputFaceBlendshapes:true,minFaceDetectionConfidence:.56,minTrackingConfidence:.55})
         try{model=await FaceLandmarker.createFromOptions(vision,faceOptions('GPU'))}catch{model=await FaceLandmarker.createFromOptions(vision,faceOptions('CPU'))}
         if(generation!==cameraGeneration.current){model.close();return}faceModel.current=model;setFaceStatus('已就绪')
       }catch(e){if(generation===cameraGeneration.current){setFaceStatus('模型错误');setError('嘴型模型未能加载，仍可使用麦克风或点击熄灭。'+message(e,'camera'))}}})()

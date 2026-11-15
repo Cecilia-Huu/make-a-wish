@@ -42,7 +42,19 @@ npm run preview -- --host 127.0.0.1 --port 5182
 
 The build checks bundled models, matching MediaPipe WASM, favicon and cover first. Production files are in `dist/`. There are no API keys or required environment variables.
 
-## GitHub and Vercel
+## GitHub Pages (primary hosting)
+
+The birthday experience is published at https://cecilia-huu.github.io/make-a-wish/ after the Pages workflow succeeds. `.github/workflows/pages.yml` tests and builds on every push to `main`, then deploys `dist/` to GitHub Pages. Repository Settings → Pages uses **GitHub Actions**. The Pages build sets `GITHUB_PAGES=true`, so JS/CSS, favicon, sharing metadata, all three task models and WASM use `/make-a-wish/`. Local development continues to use `/`.
+
+To reproduce the Pages build locally:
+
+```bash
+GITHUB_PAGES=true VITE_SITE_URL=https://cecilia-huu.github.io npm run build
+```
+
+After editing, run the checks below, commit and push to `main`. Follow the **Actions** tab until deployment succeeds; allow a short CDN propagation delay. No Vercel account is required.
+
+## Optional Vercel deployment
 
 Repository: [Cecilia-Huu/make-a-wish](https://github.com/Cecilia-Huu/make-a-wish). Repository and website publication require owner confirmation. A private repository does not itself make a deployed website private.
 
@@ -67,7 +79,7 @@ git push origin main
 
 Do not commit `.env`, access tokens, `node_modules`, caches or personal media. Ignore files exclude these. Vercel Git integration does not require adding a deployment token to the project.
 
-**GitHub Pages alternative:** current resource URLs assume a root-domain deployment. A repository subpath such as `/make-a-wish/` needs a Vite `base`, matching `import.meta.env.BASE_URL` prefixes for model/WASM/favicon/cover URLs, and an Actions Pages build. Prefer Vercel for this version; Pages is not configured or tested.
+
 
 ## Code and assets
 
