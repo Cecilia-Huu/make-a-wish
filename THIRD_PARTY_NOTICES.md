@@ -2,7 +2,7 @@
 
 React, Vite, Three.js and MediaPipe are used through npm. Their upstream licenses remain applicable; versions are pinned by `package-lock.json`.
 
-The bundled MediaPipe runtime comes from `@mediapipe/tasks-vision` (Apache-2.0): https://github.com/google-ai-edge/mediapipe .
+The bundled MediaPipe runtime comes from `@mediapipe/tasks-vision` (Apache-2.0): https://github.com/google-ai-edge/mediapipe . The Apache-2.0 license text is included in `public/wasm/LICENSE`.
 
 The pretrained task files were retrieved from Google's official model distribution:
 
