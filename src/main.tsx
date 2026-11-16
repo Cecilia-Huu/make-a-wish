@@ -12,7 +12,7 @@ import './style.css'
 type Phase='unlit'|'lit'|'wished'
 type Burst={id:number;x:number;y:number;kind:'word'|'light'|'wish'}
 type DebugHand={side:Side;raw:string;gesture:GestureName;category:string;confidence:number;word:string;points:{x:number;y:number}[]}
-type CameraDiagnostics={videoWidth:number;videoHeight:number;settings:MediaTrackSettings;constraints:MediaTrackConstraints;cssWidth:number;cssHeight:number;coverScale:number;devicePixelRatio:number}
+type CameraDiagnostics={videoWidth:number;videoHeight:number;settings:MediaTrackSettings;constraints:MediaTrackConstraints;cssWidth:number;cssHeight:number;coverScale:number;cropX:number;cropY:number;devicePixelRatio:number}
 type Spark={x:number;y:number;vx:number;vy:number;life:number;size:number;color:string;kind:'heart'|'star';born:number;duration:number;targetX?:number;targetY?:number;variant?:number;rotation?:number}
 const words:Record<Side,string[]>={Left:['I','love','you','so much'],Right:['Happy','Birthday','to','you']}
 const fingers=['食指','中指','无名指','小拇指']
@@ -119,7 +119,8 @@ function App(){
     const v=video.current,track=cameraStream.current?.getVideoTracks()[0]
     if(!v||!track)return
     const rect=v.getBoundingClientRect(),scale=v.videoWidth&&v.videoHeight?Math.max(rect.width/v.videoWidth,rect.height/v.videoHeight):0
-    setCameraDiagnostics({videoWidth:v.videoWidth,videoHeight:v.videoHeight,settings:track.getSettings(),constraints:track.getConstraints(),cssWidth:rect.width,cssHeight:rect.height,coverScale:scale,devicePixelRatio:window.devicePixelRatio||1})
+    const visibleSourceWidth=scale?rect.width/scale:v.videoWidth,visibleSourceHeight=scale?rect.height/scale:v.videoHeight
+    setCameraDiagnostics({videoWidth:v.videoWidth,videoHeight:v.videoHeight,settings:track.getSettings(),constraints:track.getConstraints(),cssWidth:rect.width,cssHeight:rect.height,coverScale:scale,cropX:Math.max(0,(v.videoWidth-visibleSourceWidth)/v.videoWidth*100),cropY:Math.max(0,(v.videoHeight-visibleSourceHeight)/v.videoHeight*100),devicePixelRatio:window.devicePixelRatio||1})
   },[])
   useEffect(()=>{
     if(!debug||!cameraOn)return
@@ -276,7 +277,8 @@ function App(){
         <div>Track 实际设置：{cameraDiagnostics.settings.width||'—'} × {cameraDiagnostics.settings.height||'—'} · {cameraDiagnostics.settings.frameRate?.toFixed(1)||'—'} fps</div>
         <div>采集设备：{cameraDiagnostics.settings.deviceId?'已选设备':'浏览器默认设备'} · {cameraDiagnostics.settings.facingMode||'user'}</div>
         <div>CSS 显示框：{Math.round(cameraDiagnostics.cssWidth)} × {Math.round(cameraDiagnostics.cssHeight)} px</div>
-        <div>object-fit: cover 缩放：{cameraDiagnostics.coverScale.toFixed(2)}× · DPR {cameraDiagnostics.devicePixelRatio.toFixed(2)}×</div>
+        <div>object-fit: cover 缩放：{cameraDiagnostics.coverScale.toFixed(2)}× · 裁切 X {cameraDiagnostics.cropX.toFixed(1)}% / Y {cameraDiagnostics.cropY.toFixed(1)}%</div>
+        <div>DPR {cameraDiagnostics.devicePixelRatio.toFixed(2)}× · 源像素到屏幕像素：{(cameraDiagnostics.coverScale*cameraDiagnostics.devicePixelRatio).toFixed(2)}×</div>
         <div>屏幕物理像素需求：{Math.round(cameraDiagnostics.cssWidth*cameraDiagnostics.devicePixelRatio)} × {Math.round(cameraDiagnostics.cssHeight*cameraDiagnostics.devicePixelRatio)}</div>
         <details><summary>Track constraints / settings</summary><pre className="camera-json">{JSON.stringify({constraints:cameraDiagnostics.constraints,settings:cameraDiagnostics.settings},null,2)}</pre></details>
       </>}
