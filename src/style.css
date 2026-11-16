@@ -17,3 +17,5 @@
 @media(max-width:600px){.love-message{top:40%;font-size:36px}}
 .controls{flex-wrap:wrap}.privacy-note{font-size:9px;line-height:1.45;margin:8px auto 0;max-width:530px;color:#fff5e9}.voice-panel small{display:block;line-height:1.5}
 @media(max-width:600px){.bottom-zone{padding-bottom:12px}.privacy-note{font-size:8px;max-width:340px}.cake-position{bottom:25%}.gesture-guide{top:23%}.guide-toggle{top:calc(23% + 215px)}}
+.camera-feed{filter:none;backdrop-filter:none;image-rendering:auto;object-position:center center}
+.camera-json{max-height:180px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:9px;line-height:1.35;background:#fff8f0;border-radius:8px;padding:8px;color:#654b45}

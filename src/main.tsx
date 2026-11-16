@@ -12,6 +12,7 @@ import './style.css'
 type Phase='unlit'|'lit'|'wished'
 type Burst={id:number;x:number;y:number;kind:'word'|'light'|'wish'}
 type DebugHand={side:Side;raw:string;gesture:GestureName;category:string;confidence:number;word:string;points:{x:number;y:number}[]}
+type CameraDiagnostics={videoWidth:number;videoHeight:number;settings:MediaTrackSettings;constraints:MediaTrackConstraints;cssWidth:number;cssHeight:number;coverScale:number;devicePixelRatio:number}
 type Spark={x:number;y:number;vx:number;vy:number;life:number;size:number;color:string;kind:'heart'|'star';born:number;duration:number;targetX?:number;targetY?:number;variant?:number;rotation?:number}
 const words:Record<Side,string[]>={Left:['I','love','you','so much'],Right:['Happy','Birthday','to','you']}
 const fingers=['食指','中指','无名指','小拇指']
@@ -53,6 +54,7 @@ function App(){
   const [debug,setDebug]=useState(false),[debugHands,setDebugHands]=useState<DebugHand[]>([]),[showGuides,setShowGuides]=useState(true),[scale,setScale]=useState(1),[offsetX,setOffsetX]=useState(0),[offsetY,setOffsetY]=useState(0),[wickRadius,setWickRadius]=useState(105)
   const [sensitivity,setSensitivity]=useState(55),[meter,setMeter]=useState(0),[blowProgress,setBlowProgress]=useState(0),[blowStrength,setBlowStrength]=useState(0),[noiseFloor,setNoiseFloor]=useState(.004),[rightLabel,setRightLabel]=useState<Side>('Right'),[isCalibrating,setIsCalibrating]=useState(false)
   const [mouthProgress,setMouthProgress]=useState(0),[mouthStage,setMouthStage]=useState('no-face'),[mouthScore,setMouthScore]=useState(0),[mouthThreshold,setMouthThreshold]=useState(.3),[mouthHold,setMouthHold]=useState(950),[faceStatus,setFaceStatus]=useState('未开启'),[handMode,setHandMode]=useState('加载中')
+  const [cameraDiagnostics,setCameraDiagnostics]=useState<CameraDiagnostics|null>(null)
   const [loveProgress,setLoveProgress]=useState(0),[loveText,setLoveText]=useState(false),[showVoice,setShowVoice]=useState(false),[voices,setVoices]=useState<SpeechSynthesisVoice[]>([]),[voiceURI,setVoiceURI]=useState(''),[rate,setRate]=useState(.94),[pitch,setPitch]=useState(1.08)
   const burst=useCallback((x:number,y:number,kind:Burst['kind'])=>{
     const id=performance.now()+Math.random();setBursts(b=>[...b.slice(-8),{id,x,y,kind}]);window.setTimeout(()=>setBursts(b=>b.filter(p=>p.id!==id)),1600)
@@ -113,6 +115,18 @@ function App(){
     for(const h of hands){ctx.fillStyle=h.side==='Left'?'#ffb6c8':'#ffdfa0';for(const p of h.points){ctx.beginPath();ctx.arc(p.x,p.y,3,0,Math.PI*2);ctx.fill()}
       const center=h.points[9];ctx.font='600 13px sans-serif';ctx.fillText(`${h.side} (${h.raw}) · ${h.gesture} ${h.word}`,center.x+12,center.y-12)}
   }
+  const readCameraDiagnostics=useCallback(()=>{
+    const v=video.current,track=cameraStream.current?.getVideoTracks()[0]
+    if(!v||!track)return
+    const rect=v.getBoundingClientRect(),scale=v.videoWidth&&v.videoHeight?Math.max(rect.width/v.videoWidth,rect.height/v.videoHeight):0
+    setCameraDiagnostics({videoWidth:v.videoWidth,videoHeight:v.videoHeight,settings:track.getSettings(),constraints:track.getConstraints(),cssWidth:rect.width,cssHeight:rect.height,coverScale:scale,devicePixelRatio:window.devicePixelRatio||1})
+  },[])
+  useEffect(()=>{
+    if(!debug||!cameraOn)return
+    readCameraDiagnostics();const id=window.setInterval(readCameraDiagnostics,750)
+    window.addEventListener('resize',readCameraDiagnostics)
+    return()=>{window.clearInterval(id);window.removeEventListener('resize',readCameraDiagnostics)}
+  },[debug,cameraOn,readCameraDiagnostics])
   const analyze=useCallback(()=>{
     const v=video.current,l=recognizer.current||landmarker.current;if(!v||!l||!cameraStream.current)return
     const frameAt=performance.now()
@@ -164,7 +178,7 @@ function App(){
     }raf.current=requestAnimationFrame(analyze)
   },[light,speak,emitHearts,magicSound,finish])
   const [lightProgress,setLightProgress]=useState(0)
-  const stopCamera=()=>{cameraGeneration.current++;cancelAnimationFrame(raf.current);cameraStream.current?.getTracks().forEach(t=>t.stop());cameraStream.current=null;if(video.current)video.current.srcObject=null;recognizer.current?.close();recognizer.current=null;landmarker.current?.close();landmarker.current=null;faceModel.current?.close();faceModel.current=null;loveGate.current.reset();loveSeenAt.current={Left:-Infinity,Right:-Infinity};mouthGate.current.reset();setCameraOn(false);setPointer(null);setHandsSeen([]);setDebugHands([]);setFaceStatus('未开启');drawDebug([],null)}
+  const stopCamera=()=>{cameraGeneration.current++;cancelAnimationFrame(raf.current);cameraStream.current?.getTracks().forEach(t=>t.stop());cameraStream.current=null;setCameraDiagnostics(null);if(video.current)video.current.srcObject=null;recognizer.current?.close();recognizer.current=null;landmarker.current?.close();landmarker.current=null;faceModel.current?.close();faceModel.current=null;loveGate.current.reset();loveSeenAt.current={Left:-Infinity,Right:-Infinity};mouthGate.current.reset();setCameraOn(false);setPointer(null);setHandsSeen([]);setDebugHands([]);setFaceStatus('未开启');drawDebug([],null)}
   const startCamera=async()=>{
     if(cameraStream.current){stopCamera();setStatus('摄像头已关闭，可点击词语与蜡烛。');return}
     if(!navigator.mediaDevices?.getUserMedia){setError('摄像头需要 localhost 或 HTTPS。');return}
@@ -172,8 +186,21 @@ function App(){
     try{sfx.current??=new AudioContext();void sfx.current.resume()}catch{/* effect stays silent if audio is blocked */}
     setLoading(true);setError('');setStatus('正在请求摄像头权限与加载手势模型…')
     try{
-      const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:960},height:{ideal:720}},audio:false});cameraStream.current=stream
+      const videoRequests:MediaTrackConstraints[]=[
+        {facingMode:'user',width:{min:1280,ideal:1920},height:{min:720,ideal:1080},frameRate:{ideal:30,max:30}},
+        {facingMode:'user',width:{min:1280,ideal:1280},height:{min:720,ideal:720},frameRate:{ideal:30,max:30}},
+        {facingMode:'user',width:{ideal:1280},height:{ideal:720},frameRate:{ideal:30}},
+        {facingMode:'user'}
+      ]
+      let stream:MediaStream|null=null,lastCameraError:unknown
+      for(const constraints of videoRequests){
+        try{stream=await navigator.mediaDevices.getUserMedia({video:constraints,audio:false});break}
+        catch(e){lastCameraError=e;const name=(e as DOMException)?.name;if(name==='NotAllowedError'||name==='SecurityError'||name==='NotFoundError'||name==='NotReadableError')break}
+      }
+      if(!stream)throw lastCameraError||new Error('无法开启摄像头')
+      cameraStream.current=stream
       if(!video.current)throw new Error('视频容器尚未就绪');video.current.srcObject=stream;await video.current.play()
+      readCameraDiagnostics()
       const vision=await FilesetResolver.forVisionTasks(`${import.meta.env.BASE_URL}wasm`)
       const opts=(path:string,delegate:'GPU'|'CPU')=>({baseOptions:{modelAssetPath:path,delegate},runningMode:'VIDEO' as const,numHands:2,minHandDetectionConfidence:.56,minTrackingConfidence:.55})
       try{recognizer.current=await GestureRecognizer.createFromOptions(vision,opts(`${import.meta.env.BASE_URL}models/gesture_recognizer.task`,'GPU'))}
@@ -243,6 +270,17 @@ function App(){
     <div className="bottom-zone"><div className="flow">Gesture & Speak <span>→</span> Light the Candle <span>→</span> Make a Wish</div><div className="status-line" aria-live="polite">{status}</div>{phase==='lit'&&<div className="mouth-hint">先自然闭嘴，再保持 O 型嘴约 1 秒，模拟吹灭蜡烛 · {Math.round(mouthProgress*100)}%</div>}<div className="controls"><button onClick={startCamera} disabled={loading}>{loading?'正在加载…':cameraOn?'关闭 Camera':'开启 Camera'}</button><button onClick={startMic}>{micOn?'关闭 Mic':'开启 Mic（可选）'}</button>{phase==='lit'&&<button className="primary" onClick={finish}>点击吹灭 ♡</button>}{phase==='wished'&&<button onClick={reset}>Replay</button>}<button onClick={()=>setShowVoice(!showVoice)} aria-expanded={showVoice}>♫ Voice Settings</button><button className="settings-button" onClick={()=>setDebug(!debug)} aria-pressed={debug}>⚙ 调试</button></div><p className="privacy-note">视频与麦克风输入仅在浏览器处理，不上传或存储。也可直接点击词语与蜡烛体验。</p></div>
     {showVoice&&<aside className="voice-panel"><div className="debug-head"><strong>Voice Settings</strong><button onClick={()=>setShowVoice(false)} aria-label="关闭声音设置">×</button></div><label>English voice<select value={voiceURI} onChange={e=>{const v=voices.find(item=>item.voiceURI===e.target.value);voiceRef.current=v;setVoiceURI(e.target.value)}}>{voices.length?voices.map(v=><option key={v.voiceURI} value={v.voiceURI}>{v.name} · {v.lang}</option>):<option value="">浏览器暂无英语语音</option>}</select></label><button onClick={()=>say('Happy Birthday to you',voiceRef.current,rateRef.current,pitchRef.current)}>试听当前声音 ▶</button><label>语速 {rate.toFixed(2)}<input type="range" min=".7" max="1.2" step=".02" value={rate} onChange={e=>{const n=+e.target.value;setRate(n);rateRef.current=n}}/></label><label>音调 {pitch.toFixed(2)}<input type="range" min=".8" max="1.4" step=".02" value={pitch} onChange={e=>{const n=+e.target.value;setPitch(n);pitchRef.current=n}}/></label><small>音质取决于浏览器和系统安装的声音。</small></aside>}
     {debug&&<aside className="debug-panel"><div className="debug-head"><strong>Gesture · Face · Mic <small>V2.3.1</small></strong><button onClick={()=>setDebug(false)}>×</button></div>
+      <hr/><strong>Camera · 画质诊断</strong>
+      <div>视频源：{video.current?.readyState===4?'实时播放':video.current?.readyState===2?'已可用':'等待中'} · {video.current?.videoWidth||0} × {video.current?.videoHeight||0}</div>
+      {cameraDiagnostics&&<>
+        <div>Track 实际设置：{cameraDiagnostics.settings.width||'—'} × {cameraDiagnostics.settings.height||'—'} · {cameraDiagnostics.settings.frameRate?.toFixed(1)||'—'} fps</div>
+        <div>采集设备：{cameraDiagnostics.settings.deviceId?'已选设备':'浏览器默认设备'} · {cameraDiagnostics.settings.facingMode||'user'}</div>
+        <div>CSS 显示框：{Math.round(cameraDiagnostics.cssWidth)} × {Math.round(cameraDiagnostics.cssHeight)} px</div>
+        <div>object-fit: cover 缩放：{cameraDiagnostics.coverScale.toFixed(2)}× · DPR {cameraDiagnostics.devicePixelRatio.toFixed(2)}×</div>
+        <div>屏幕物理像素需求：{Math.round(cameraDiagnostics.cssWidth*cameraDiagnostics.devicePixelRatio)} × {Math.round(cameraDiagnostics.cssHeight*cameraDiagnostics.devicePixelRatio)}</div>
+        <details><summary>Track constraints / settings</summary><pre className="camera-json">{JSON.stringify({constraints:cameraDiagnostics.constraints,settings:cameraDiagnostics.settings},null,2)}</pre></details>
+      </>}
+      <small>展示和识别都直接读取 video；没有展示用 Canvas 降采样。cover 会裁切以填满视口。</small>
       <div>手部模型：{handMode}</div><div>识别：{handsSeen.length?handsSeen.join(' / '):'等待手部'} · 真实右手：{rightLabel}</div>
       <button onClick={calibrate}>{isCalibrating?'请只举真实右手…':'校准真实右手'}</button><button onClick={()=>{rightRaw.current=rightRaw.current==='Right'?'Left':'Right';setRightLabel(rightRaw.current);gesture.current.reset();loveGate.current.reset()}}>切换左右映射</button>
       {debugHands.map((h,i)=><div key={i}>{h.side} / 原始 {h.raw} · {h.gesture} · {h.category} {Math.round(h.confidence*100)}% · {h.word||'—'}</div>)}
