@@ -113,18 +113,27 @@ test('point dwell lights only near wick, without a pinch word',()=>{
   assert.equal(event.light,true);assert.equal(event.pinchIndex,null)
   assert.equal(g.update('Left',point,1100,true,true).light,false)
 })
-test('both love classifications hold then release and rearm',()=>{
+test('both love classifications tolerate short jitter, trigger after hold, then rearm after release',()=>{
   const gate=new LoveGate()
   assert.equal(gate.update(false,true,100).triggered,false)
   assert.equal(gate.update(true,true,150).triggered,false)
-  assert.equal(gate.update(true,true,960).triggered,true)
-  assert.equal(gate.update(true,true,1050).triggered,false)
-  gate.update(false,true,1200);gate.update(false,true,1500)
-  gate.update(true,true,1700)
-  assert.equal(gate.update(true,true,2550).triggered,true)
+  assert.equal(gate.update(true,false,300).active,false)
+  assert.equal(gate.update(true,true,400).progress>0,true)
+  assert.equal(gate.update(true,true,900).triggered,true)
+  assert.equal(gate.update(true,true,1000).triggered,false)
+  gate.update(false,false,1000);gate.update(false,false,1200);gate.update(false,false,2400)
+  gate.update(true,true,2500)
+  assert.equal(gate.update(true,true,3200).triggered,true)
   const g=new GestureEngine(),pinch=hand('pinch')
   assert.equal(g.update('Left',pinch,100,false,true,true).pinchIndex,null)
   assert.equal(g.update('Left',pinch,200,false,true,true).name,'love')
+})
+test('one I Love You hand never activates bilateral heart gate or suppresses pinch by itself',()=>{
+  const gate=new LoveGate()
+  for(let t=0;t<2000;t+=33){const state=gate.update(true,false,t);assert.equal(state.triggered,false);assert.equal(state.active,false)}
+  const g=new GestureEngine(),pose=hand('pinch')
+  g.update('Left',hand('open'),0,false,true)
+  assert.equal(g.update('Left',pose,33,false,true,false,1,'').pinchPhase,'PINCH_CANDIDATE')
 })
 test('O mouth requires neutral calibration, steady pose and cooldown',()=>{
   const g=new MouthGate(),neutral={face:true,funnel:.04,pucker:.05,jawOpen:.03,lipRatio:.05},o={face:true,funnel:.48,pucker:.52,jawOpen:.25,lipRatio:.32}
