@@ -11,7 +11,7 @@ import './style.css'
 
 type Phase='unlit'|'lit'|'wished'
 type Burst={id:number;x:number;y:number;kind:'word'|'light'|'wish'}
-type DebugHand={side:Side;raw:string;gesture:GestureName;phase:string;distances:number[];category:string;confidence:number;word:string;points:{x:number;y:number}[]}
+type DebugHand={side:Side;raw:string;gesture:GestureName;phase:string;distances:number[];reason:string;category:string;confidence:number;word:string;points:{x:number;y:number}[]}
 type CameraDiagnostics={videoWidth:number;videoHeight:number;settings:MediaTrackSettings;constraints:MediaTrackConstraints;cssWidth:number;cssHeight:number;coverScale:number;cropX:number;cropY:number;devicePixelRatio:number}
 type VoiceEvent={id:number;side:Side;finger:string;word:string;time:string;status:string}
 type Spark={x:number;y:number;vx:number;vy:number;life:number;size:number;color:string;kind:'heart'|'star';born:number;duration:number;targetX?:number;targetY?:number;variant?:number;rotation?:number}
@@ -48,12 +48,12 @@ function App(){
   const landmarker=useRef<HandLandmarker|null>(null),recognizer=useRef<GestureRecognizer|null>(null),faceModel=useRef<FaceLandmarker|null>(null),raf=useRef(0),lastVideoTime=useRef(-1),lastFaceAt=useRef(0),gesture=useRef(new GestureEngine()),loveGate=useRef(new LoveGate()),mouthGate=useRef(new MouthGate())
   const audio=useRef<AudioContext|null>(null),sfx=useRef<AudioContext|null>(null),audioRaf=useRef(0),blow=useRef(new BlowDetector()),latestRms=useRef(0)
   const phaseRef=useRef<Phase>('unlit'),litAt=useRef(0),rightRaw=useRef<Side>('Right'),calibration=useRef<{label:Side;since:number}|null>(null),calibrating=useRef(false)
-  const sensitivityRef=useRef(55),debugRef=useRef(false),debugCanvas=useRef<HTMLCanvasElement>(null),fxCanvas=useRef<HTMLCanvasElement>(null),fxRaf=useRef(0),fxAt=useRef(0),heartSprites=useRef<HTMLCanvasElement[]|null>(null),sparks=useRef<Spark[]>([])
+  const sensitivityRef=useRef(55),debugRef=useRef(false),skeletonRef=useRef(true),debugCanvas=useRef<HTMLCanvasElement>(null),fxCanvas=useRef<HTMLCanvasElement>(null),fxRaf=useRef(0),fxAt=useRef(0),heartSprites=useRef<HTMLCanvasElement[]|null>(null),sparks=useRef<Spark[]>([])
   const lastWordRef=useRef<Record<Side,string>>({Left:'',Right:''}),loveSeenAt=useRef<Record<Side,number>>({Left:-Infinity,Right:-Infinity}),uiAt=useRef(0),audioUiAt=useRef(0),lastInferenceAt=useRef(0),voiceRef=useRef<SpeechSynthesisVoice|undefined>(undefined),rateRef=useRef(.94),pitchRef=useRef(1.08),mouthThresholdRef=useRef(.3),mouthHoldRef=useRef(950),wickRadiusRef=useRef(105),cameraGeneration=useRef(0)
   const [phase,setPhase]=useState<Phase>('unlit'),[cameraOn,setCameraOn]=useState(false),[micOn,setMicOn]=useState(false),[loading,setLoading]=useState(false)
   const [status,setStatus]=useState('开启摄像头，让双手进入画面。'),[error,setError]=useState(''),[lastWord,setLastWord]=useState<{text:string;id:number}|null>(null)
   const [bursts,setBursts]=useState<Burst[]>([]),[handsSeen,setHandsSeen]=useState<Side[]>([]),[pointer,setPointer]=useState<{x:number;y:number}|null>(null),[activeSide,setActiveSide]=useState<Side|null>(null)
-  const [debug,setDebug]=useState(false),[debugHands,setDebugHands]=useState<DebugHand[]>([]),[showGuides,setShowGuides]=useState(true),[scale,setScale]=useState(1),[offsetX,setOffsetX]=useState(0),[offsetY,setOffsetY]=useState(0),[wickRadius,setWickRadius]=useState(105)
+  const [debug,setDebug]=useState(false),[debugHands,setDebugHands]=useState<DebugHand[]>([]),[showSkeleton,setShowSkeleton]=useState(true),[showGuides,setShowGuides]=useState(true),[scale,setScale]=useState(1),[offsetX,setOffsetX]=useState(0),[offsetY,setOffsetY]=useState(0),[wickRadius,setWickRadius]=useState(105)
   const [sensitivity,setSensitivity]=useState(55),[meter,setMeter]=useState(0),[blowProgress,setBlowProgress]=useState(0),[blowStrength,setBlowStrength]=useState(0),[noiseFloor,setNoiseFloor]=useState(.004),[rightLabel,setRightLabel]=useState<Side>('Right'),[isCalibrating,setIsCalibrating]=useState(false)
   const [mouthProgress,setMouthProgress]=useState(0),[mouthStage,setMouthStage]=useState('no-face'),[mouthScore,setMouthScore]=useState(0),[mouthThreshold,setMouthThreshold]=useState(.3),[mouthHold,setMouthHold]=useState(950),[faceStatus,setFaceStatus]=useState('未开启'),[handMode,setHandMode]=useState('加载中')
   const [cameraDiagnostics,setCameraDiagnostics]=useState<CameraDiagnostics|null>(null)
@@ -114,6 +114,12 @@ function App(){
   const drawDebug=(hands:DebugHand[],zone:{x:number;y:number}|null)=>{
     const c=debugCanvas.current,ctx=c?.getContext('2d');if(!c||!ctx)return
     const ratio=Math.min(devicePixelRatio||1,1.5);c.width=innerWidth*ratio;c.height=innerHeight*ratio;ctx.setTransform(ratio,0,0,ratio,0,0);ctx.clearRect(0,0,innerWidth,innerHeight)
+    const links:[number,number][]=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]]
+    if(skeletonRef.current)for(const h of hands){ctx.strokeStyle=h.phase==='PINCH_CANDIDATE'?'#ffbad2cc':'#fff9edaa';ctx.lineWidth=1.2;ctx.shadowColor='#ffdce8';ctx.shadowBlur=5
+      for(const [a,b] of links){ctx.beginPath();ctx.moveTo(h.points[a].x,h.points[a].y);ctx.lineTo(h.points[b].x,h.points[b].y);ctx.stroke()}
+      h.points.forEach((p,i)=>{ctx.beginPath();ctx.fillStyle=(i===4||[8,12,16,20].includes(i))&&h.distances[[8,12,16,20].indexOf(i)]<.4?'#ff9fbd':'#fffaf0';ctx.arc(p.x,p.y,i===0?2.4:2,0,Math.PI*2);ctx.fill()})
+      ctx.shadowBlur=0
+    }
     if(!debugRef.current)return
     if(zone){ctx.strokeStyle='#e6b659';ctx.lineWidth=1.5;ctx.setLineDash([6,6]);ctx.beginPath();ctx.arc(zone.x,zone.y,wickRadius,0,Math.PI*2);ctx.stroke();ctx.setLineDash([])}
     for(const h of hands){ctx.fillStyle=h.side==='Left'?'#ffb6c8':'#ffdfa0';for(const p of h.points){ctx.beginPath();ctx.arc(p.x,p.y,3,0,Math.PI*2);ctx.fill()}
@@ -161,14 +167,14 @@ function App(){
           if(event.light)light()
           if(event.pinchIndex!==null)speak(side,event.pinchIndex,index.x,index.y)
           if(side==='Right')setPointer(index)
-          if(debugRef.current)debugList.push({side,raw,gesture:event.name,phase:event.pinchPhase,distances:event.distances,category:category?.categoryName||'—',confidence:handConfidence,word:lastWordRef.current[side],points:lm.map(p=>screenPoint(p,v))})
+          if(debugRef.current||skeletonRef.current)debugList.push({side,raw,gesture:event.name,phase:event.pinchPhase,distances:event.distances,reason:event.reason,category:category?.categoryName||'—',confidence:handConfidence,word:lastWordRef.current[side],points:lm.map(p=>screenPoint(p,v))})
           progress=Math.max(progress,event.lightProgress)
         })
         const loveResult=loveGate.current.update(!!loveHands.Left,!!loveHands.Right,now)
         if(loveResult.triggered){emitHearts([loveHands.Left!,loveHands.Right!]);setLoveText(true);magicSound();setStatus('Sending you all my love ♡');window.setTimeout(()=>setLoveText(false),2500)}
         ;(['Left','Right'] as Side[]).forEach(s=>gesture.current.lost(s,now))
         if(now-uiAt.current>100){setHandsSeen(seen);setDebugHands(debugList);setLightProgress(progress);setLoveProgress(loveResult.progress);if(!seen.includes('Right'))setPointer(null);uiAt.current=now}
-        if(debugRef.current)drawDebug(debugList,zone)
+        if(debugRef.current||skeletonRef.current)drawDebug(debugList,zone)
         // Face inference is independent and runs around 10 fps, only after lighting.
         if(phaseRef.current==='lit'&&faceModel.current&&now-lastFaceAt.current>=95){
           lastFaceAt.current=now
@@ -258,7 +264,7 @@ function App(){
     update();window.speechSynthesis.addEventListener('voiceschanged',update)
     return()=>window.speechSynthesis.removeEventListener('voiceschanged',update)
   },[])
-  useEffect(()=>{debugRef.current=debug;if(!debug)drawDebug([],null)},[debug])
+  useEffect(()=>{debugRef.current=debug;skeletonRef.current=showSkeleton;if(!debug&&!showSkeleton)drawDebug([],null)},[debug,showSkeleton])
   useEffect(()=>()=>{cancelAnimationFrame(raf.current);cancelAnimationFrame(audioRaf.current);cancelAnimationFrame(fxRaf.current);cameraStream.current?.getTracks().forEach(t=>t.stop());micStream.current?.getTracks().forEach(t=>t.stop());recognizer.current?.close();landmarker.current?.close();faceModel.current?.close();void audio.current?.close();void sfx.current?.close();stopVoice()},[])
   return <main className={`experience ${phase} ${Math.max(mouthProgress,blowProgress)>0?'is-blowing':''}`}>
     <video ref={video} className={`camera-feed ${cameraOn?'show':''}`} autoPlay muted playsInline aria-label="镜像摄像头画面"/>
@@ -290,7 +296,8 @@ function App(){
       <small>展示和识别都直接读取 video；没有展示用 Canvas 降采样。cover 会裁切以填满视口。</small>
       <div>手部模型：{handMode}</div><div>识别：{handsSeen.length?handsSeen.join(' / '):'等待手部'} · 真实右手：{rightLabel}</div>
       <button onClick={calibrate}>{isCalibrating?'请只举真实右手…':'校准真实右手'}</button><button onClick={()=>{rightRaw.current=rightRaw.current==='Right'?'Left':'Right';setRightLabel(rightRaw.current);gesture.current.reset();loveGate.current.reset()}}>切换左右映射</button>
-      {debugHands.map((h,i)=><div key={i} className="gesture-debug-row"><strong>{h.side}</strong> / 原始 {h.raw} · {h.phase} · {h.category} · 手部置信 {Math.round(h.confidence*100)}%<br/><small>拇指到食指/中指/无名指/小拇指：{h.distances.map(value=>value.toFixed(2)).join(' / ')} · 最近播报 {h.word||'—'}</small></div>)}
+      <label><input type="checkbox" checked={showSkeleton} onChange={e=>setShowSkeleton(e.target.checked)}/> 显示手部骨架</label>
+      {debugHands.map((h,i)=><div key={i} className="gesture-debug-row"><strong>{h.side}</strong> / 原始 {h.raw} · {h.phase} · {h.category} · {h.reason} · 置信 {Math.round(h.confidence*100)}%<br/><small>拇指到食指/中指/无名指/小拇指：{h.distances.map(value=>value.toFixed(2)).join(' / ')} · 阈值 {0.23} / 松开 {0.40} · 最近播报 {h.word||'—'}</small></div>)}
       <div><strong>最近手势触发：</strong>{lastTrigger?`${lastTrigger.side} + ${lastTrigger.finger} → “${lastTrigger.word}” · ${lastTrigger.time}`:'暂无'}</div>
       <div><strong>语音事件：</strong></div>{voiceEvents.slice().reverse().map(event=><div className="gesture-debug-row" key={event.id}>{event.time} · {event.side} + {event.finger} → “{event.word}” · {event.status}</div>)}
       <div>双手 🤟 保持 {Math.round(loveProgress*100)}%</div><div className="meter"><i style={{width:`${loveProgress*100}%`}}/></div><button onClick={()=>{emitHearts([{x:innerWidth*.42,y:innerHeight*.5},{x:innerWidth*.58,y:innerHeight*.5}]);setLoveText(true);magicSound();window.setTimeout(()=>setLoveText(false),2500)}}>预览爱心 ♡</button>

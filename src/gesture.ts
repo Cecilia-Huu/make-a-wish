@@ -3,13 +3,13 @@ import type {NormalizedLandmark} from '@mediapipe/tasks-vision'
 export type Side='Left'|'Right'
 export type GestureName='love'|'point'|'pinch'|'idle'
 export type PinchPhase='RELEASED'|'PINCH_CANDIDATE'|'PINCH_CONFIRMED'|'WAIT_FOR_RELEASE'
-export type GestureResult={name:GestureName;pinchIndex:number|null;pinchPhase:PinchPhase;distances:number[];lightProgress:number;light:boolean}
+export type GestureResult={name:GestureName;pinchIndex:number|null;pinchPhase:PinchPhase;distances:number[];lightProgress:number;light:boolean;reason:string}
 type HandState={phase:PinchPhase;armed:boolean;pinchCandidate:number|null;pinchSince:number;pointSince:number;lastSeen:number;lightDone:boolean}
 const tips=[8,12,16,20],pips=[6,10,14,18],mcps=[5,9,13,17]
 const d=(a:NormalizedLandmark,b:NormalizedLandmark)=>Math.hypot(a.x-b.x,a.y-b.y)
-const ENTER=.19
-const RELEASE=.38
-const HOLD_MS=150
+const ENTER=.23
+const RELEASE=.40
+const HOLD_MS=105
 const MIN_CONFIDENCE=.62
 const MAX_SAMPLE_GAP=120
 const fresh=():HandState=>({phase:'RELEASED',armed:false,pinchCandidate:null,pinchSince:0,pointSince:0,lastSeen:0,lightDone:false})
@@ -43,7 +43,8 @@ export class GestureEngine {
     const uniqueTarget=nearest.value<ENTER&&runnerUp.value-nearest.value>=.18&&runnerUp.value>=RELEASE
     const clearRelease=distances.every(value=>value>=RELEASE)
     const validConfidence=Number.isFinite(confidence)&&confidence>=MIN_CONFIDENCE
-    const validPose=(index:number)=>folded[index]&&extended.every((value,i)=>i===index||value)
+    const validPose=(index:number)=>folded[index]&&extended.filter((value,i)=>i!==index&&value).length>=2
+    let reason='等待明确松开'
 
     // A fresh track is disarmed. Even if it first appears pinched, it must open before arming.
     if(!validConfidence||isLove||point||classifiedOtherPose){
@@ -56,7 +57,7 @@ export class GestureEngine {
       if(!s.armed){if(clearRelease)s.armed=true}
       else if(uniqueTarget&&validPose(nearest.index)){
         s.phase='PINCH_CANDIDATE';s.pinchCandidate=nearest.index;s.pinchSince=now
-      }
+      }else reason=!uniqueTarget?'指尖距离未达阈值或目标不唯一':'其它手指姿态不明确'
     }else if(s.phase==='PINCH_CANDIDATE'){
       const candidate=s.pinchCandidate
       if(candidate!==null&&uniqueTarget&&nearest.index===candidate&&validPose(candidate)){
@@ -67,6 +68,12 @@ export class GestureEngine {
       }
     }
     s.lastSeen=now
-    return {name:isLove?'love':point?'point':s.phase==='PINCH_CONFIRMED'?'pinch':'idle',pinchIndex,pinchPhase:s.phase,distances,lightProgress,light}
+    if(s.phase==='PINCH_CANDIDATE')reason='候选稳定计时中'
+    if(s.phase==='PINCH_CONFIRMED')reason='已确认并触发'
+    if(s.phase==='WAIT_FOR_RELEASE')reason='等待明确松开'
+    if(!validConfidence)reason='手部置信度不足'
+    if(isLove)reason='检测到 I Love You，单词捏合互斥'
+    if(point)reason='检测到指向手势'
+    return {name:isLove?'love':point?'point':s.phase==='PINCH_CONFIRMED'?'pinch':'idle',pinchIndex,pinchPhase:s.phase,distances,lightProgress,light,reason}
   }
 }
