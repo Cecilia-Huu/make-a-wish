@@ -11,11 +11,13 @@ import './style.css'
 
 type Phase='unlit'|'lit'|'wished'
 type Burst={id:number;x:number;y:number;kind:'word'|'light'|'wish'}
-type DebugHand={side:Side;raw:string;gesture:GestureName;category:string;confidence:number;word:string;points:{x:number;y:number}[]}
+type DebugHand={side:Side;raw:string;gesture:GestureName;phase:string;distances:number[];category:string;confidence:number;word:string;points:{x:number;y:number}[]}
 type CameraDiagnostics={videoWidth:number;videoHeight:number;settings:MediaTrackSettings;constraints:MediaTrackConstraints;cssWidth:number;cssHeight:number;coverScale:number;cropX:number;cropY:number;devicePixelRatio:number}
+type VoiceEvent={id:number;side:Side;finger:string;word:string;time:string;status:string}
 type Spark={x:number;y:number;vx:number;vy:number;life:number;size:number;color:string;kind:'heart'|'star';born:number;duration:number;targetX?:number;targetY?:number;variant?:number;rotation?:number}
 const words:Record<Side,string[]>={Left:['I','love','you','so much'],Right:['Happy','Birthday','to','you']}
 const fingers=['食指','中指','无名指','小拇指']
+const englishFingers=['index finger','middle finger','ring finger','little finger']
 const colors=['#fff4d3','#f5d18d','#ffc9d5','#fffdf3','#eeb5bd']
 function makeHeartSprite(light:string,mid:string,shadow:string){
   const canvas=document.createElement('canvas');canvas.width=canvas.height=256
@@ -55,6 +57,7 @@ function App(){
   const [sensitivity,setSensitivity]=useState(55),[meter,setMeter]=useState(0),[blowProgress,setBlowProgress]=useState(0),[blowStrength,setBlowStrength]=useState(0),[noiseFloor,setNoiseFloor]=useState(.004),[rightLabel,setRightLabel]=useState<Side>('Right'),[isCalibrating,setIsCalibrating]=useState(false)
   const [mouthProgress,setMouthProgress]=useState(0),[mouthStage,setMouthStage]=useState('no-face'),[mouthScore,setMouthScore]=useState(0),[mouthThreshold,setMouthThreshold]=useState(.3),[mouthHold,setMouthHold]=useState(950),[faceStatus,setFaceStatus]=useState('未开启'),[handMode,setHandMode]=useState('加载中')
   const [cameraDiagnostics,setCameraDiagnostics]=useState<CameraDiagnostics|null>(null)
+  const [lastTrigger,setLastTrigger]=useState<VoiceEvent|null>(null),[voiceEvents,setVoiceEvents]=useState<VoiceEvent[]>([])
   const [loveProgress,setLoveProgress]=useState(0),[loveText,setLoveText]=useState(false),[showVoice,setShowVoice]=useState(false),[voices,setVoices]=useState<SpeechSynthesisVoice[]>([]),[voiceURI,setVoiceURI]=useState(''),[rate,setRate]=useState(.94),[pitch,setPitch]=useState(1.08)
   const burst=useCallback((x:number,y:number,kind:Burst['kind'])=>{
     const id=performance.now()+Math.random();setBursts(b=>[...b.slice(-8),{id,x,y,kind}]);window.setTimeout(()=>setBursts(b=>b.filter(p=>p.id!==id)),1600)
@@ -93,8 +96,9 @@ function App(){
     const at=ctx.currentTime;[523.25,659.25,783.99].forEach((frequency,i)=>{const oscillator=ctx.createOscillator(),gain=ctx.createGain();oscillator.type='sine';oscillator.frequency.value=frequency;gain.gain.setValueAtTime(.0001,at+i*.12);gain.gain.exponentialRampToValueAtTime(.035,at+i*.12+.025);gain.gain.exponentialRampToValueAtTime(.0001,at+i*.12+.55);oscillator.connect(gain).connect(ctx.destination);oscillator.start(at+i*.12);oscillator.stop(at+i*.12+.57)})
   },[])
   const speak=useCallback((side:Side,index:number,x:number,y:number)=>{
-    const word=words[side][index];lastWordRef.current[side]=word;setActiveSide(side);setLastWord({text:word,id:performance.now()});burst(x,y,'word');setStatus(`${side==='Left'?'左手':'右手'} · ${word}`)
-    playWord(`${side}-${index}` as WordKey,word,voiceRef.current,rateRef.current,pitchRef.current)
+    const word=words[side][index],id=Date.now()+Math.random(),event:VoiceEvent={id,side,finger:englishFingers[index],word,time:new Date().toLocaleTimeString(),status:'queued'}
+    lastWordRef.current[side]=word;setLastTrigger(event);setVoiceEvents(previous=>[...previous.slice(-5),event]);setActiveSide(side);setLastWord({text:word,id:performance.now()});burst(x,y,'word');setStatus(`${side==='Left'?'左手':'右手'} · ${word}`)
+    playWord(`${side}-${index}` as WordKey,word,voiceRef.current,rateRef.current,pitchRef.current,status=>setVoiceEvents(previous=>previous.map(item=>item.id===id?{...item,status}:item)))
   },[burst])
   const light=useCallback(()=>{
     if(phaseRef.current!=='unlit')return;phaseRef.current='lit';setPhase('lit');litAt.current=performance.now();blow.current.reset();mouthGate.current.reset();setBlowProgress(0);setMouthProgress(0)
@@ -147,16 +151,17 @@ function App(){
           const raw=result.handednesses[i]?.[0]?.categoryName as Side|undefined;if(raw!=='Left'&&raw!=='Right')return
           const side:Side=raw===rightRaw.current?'Right':'Left',index=screenPoint(lm[8],v),palm=screenPoint(lm[9],v);seen.push(side)
           const category=recognizer.current?(result as GestureRecognizerResult).gestures[i]?.[0]:undefined
+          const handConfidence=result.handednesses[i]?.[0]?.score??0
           if(category?.categoryName==='ILoveYou'&&category.score>=.55)loveSeenAt.current[side]=now
           // A short grace period bridges classifier jitter and keeps pinch events muted.
           const isLove=now-loveSeenAt.current[side]<180
           if(isLove)loveHands[side]=palm
           const near=!!zone&&Math.hypot(index.x-zone.x,index.y-zone.y)<wickRadiusRef.current
-          const event=gesture.current.update(raw,lm,now,near,phaseRef.current==='unlit',isLove)
+          const event=gesture.current.update(raw,lm,now,near,phaseRef.current==='unlit',isLove,handConfidence,category?.categoryName||'')
           if(event.light)light()
           if(event.pinchIndex!==null)speak(side,event.pinchIndex,index.x,index.y)
           if(side==='Right')setPointer(index)
-          if(debugRef.current)debugList.push({side,raw,gesture:event.name,category:category?.categoryName||'—',confidence:category?.score||0,word:lastWordRef.current[side],points:lm.map(p=>screenPoint(p,v))})
+          if(debugRef.current)debugList.push({side,raw,gesture:event.name,phase:event.pinchPhase,distances:event.distances,category:category?.categoryName||'—',confidence:handConfidence,word:lastWordRef.current[side],points:lm.map(p=>screenPoint(p,v))})
           progress=Math.max(progress,event.lightProgress)
         })
         const loveResult=loveGate.current.update(!!loveHands.Left,!!loveHands.Right,now)
@@ -285,7 +290,9 @@ function App(){
       <small>展示和识别都直接读取 video；没有展示用 Canvas 降采样。cover 会裁切以填满视口。</small>
       <div>手部模型：{handMode}</div><div>识别：{handsSeen.length?handsSeen.join(' / '):'等待手部'} · 真实右手：{rightLabel}</div>
       <button onClick={calibrate}>{isCalibrating?'请只举真实右手…':'校准真实右手'}</button><button onClick={()=>{rightRaw.current=rightRaw.current==='Right'?'Left':'Right';setRightLabel(rightRaw.current);gesture.current.reset();loveGate.current.reset()}}>切换左右映射</button>
-      {debugHands.map((h,i)=><div key={i}>{h.side} / 原始 {h.raw} · {h.gesture} · {h.category} {Math.round(h.confidence*100)}% · {h.word||'—'}</div>)}
+      {debugHands.map((h,i)=><div key={i} className="gesture-debug-row"><strong>{h.side}</strong> / 原始 {h.raw} · {h.phase} · {h.category} · 手部置信 {Math.round(h.confidence*100)}%<br/><small>拇指到食指/中指/无名指/小拇指：{h.distances.map(value=>value.toFixed(2)).join(' / ')} · 最近播报 {h.word||'—'}</small></div>)}
+      <div><strong>最近手势触发：</strong>{lastTrigger?`${lastTrigger.side} + ${lastTrigger.finger} → “${lastTrigger.word}” · ${lastTrigger.time}`:'暂无'}</div>
+      <div><strong>语音事件：</strong></div>{voiceEvents.slice().reverse().map(event=><div className="gesture-debug-row" key={event.id}>{event.time} · {event.side} + {event.finger} → “{event.word}” · {event.status}</div>)}
       <div>双手 🤟 保持 {Math.round(loveProgress*100)}%</div><div className="meter"><i style={{width:`${loveProgress*100}%`}}/></div><button onClick={()=>{emitHearts([{x:innerWidth*.42,y:innerHeight*.5},{x:innerWidth*.58,y:innerHeight*.5}]);setLoveText(true);magicSound();window.setTimeout(()=>setLoveText(false),2500)}}>预览爱心 ♡</button>
       <hr/><label>蛋糕缩放 <input type="range" min=".65" max="1.5" step=".05" value={scale} onChange={e=>setScale(+e.target.value)}/></label><label>蛋糕 X <input type="range" min="-180" max="180" value={offsetX} onChange={e=>setOffsetX(+e.target.value)}/></label><label>蛋糕 Y <input type="range" min="-150" max="150" value={offsetY} onChange={e=>setOffsetY(+e.target.value)}/></label><label>烛芯感应半径 {wickRadius}px <input type="range" min="65" max="180" value={wickRadius} onChange={e=>{setWickRadius(+e.target.value);wickRadiusRef.current=+e.target.value}}/></label>
       <hr/><div>Face {faceStatus} · 状态 {mouthStage} · O 指标 {mouthScore.toFixed(2)}</div><div>O 型嘴进度 {Math.round(mouthProgress*100)}%</div><div className="meter"><i style={{width:`${mouthProgress*100}%`}}/></div><label>O 型阈值 {mouthThreshold.toFixed(2)}<input type="range" min=".15" max=".65" step=".01" value={mouthThreshold} onChange={e=>{const n=+e.target.value;setMouthThreshold(n);mouthThresholdRef.current=n}}/></label><label>保持时间 {mouthHold}ms<input type="range" min="800" max="1200" step="50" value={mouthHold} onChange={e=>{const n=+e.target.value;setMouthHold(n);mouthHoldRef.current=n}}/></label><small>O 型嘴只模拟吹气；讲话或表情仍可能误触发。</small>

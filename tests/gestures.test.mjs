@@ -6,8 +6,8 @@ import {LoveGate} from '../src/love.ts'
 import {MouthGate} from '../src/mouth.ts'
 import {playWord} from '../src/voice.ts'
 test('all eight words use the same selected voice and settings; I says /aɪ/',()=>{
-  const previousWindow=globalThis.window,previousUtterance=globalThis.SpeechSynthesisUtterance,spoken=[]
-  globalThis.window={speechSynthesis:{cancel(){},speak(utterance){spoken.push(utterance)}}}
+  const previousWindow=globalThis.window,previousUtterance=globalThis.SpeechSynthesisUtterance,spoken=[];let canceled=0
+  globalThis.window={speechSynthesis:{cancel(){canceled++},speak(utterance){spoken.push(utterance)}}}
   globalThis.SpeechSynthesisUtterance=class{constructor(text){this.text=text}}
   try{
     const voice={name:'Selected English Voice',lang:'en-US'}
@@ -16,34 +16,93 @@ test('all eight words use the same selected voice and settings; I says /aɪ/',()
     assert.equal(spoken.length,8)
     assert.equal(spoken[0].text,'eye')
     assert.deepEqual(spoken.slice(1).map(u=>u.text),words.slice(1))
+    assert.ok(canceled>=8,'each word cancels pending speech before speaking')
     for(const utterance of spoken){assert.equal(utterance.voice,voice);assert.equal(utterance.rate,.94);assert.equal(utterance.pitch,1.08)}
   }finally{if(previousWindow===undefined)delete globalThis.window;else globalThis.window=previousWindow;if(previousUtterance===undefined)delete globalThis.SpeechSynthesisUtterance;else globalThis.SpeechSynthesisUtterance=previousUtterance}
 })
-function hand(pose){
+function hand(pose,target=0){
   const p=Array.from({length:21},()=>({x:.5,y:.65,z:0}))
-  p[0]={x:.5,y:.82,z:0};p[2]={x:.42,y:.62,z:0};p[4]={x:pose==='fist'?.49:.34,y:pose==='fist'?.57:.55,z:0}
-  const m=[5,9,13,17],pip=[6,10,14,18],tip=[8,12,16,20]
-  m.forEach((n,i)=>{p[n]={x:.45+i*.04,y:.55,z:0};p[pip[i]]={x:.45+i*.04,y:.43,z:0};p[tip[i]]={x:.45+i*.04,y:pose==='open'||pose==='point'&&i===0?.27:.54,z:0}})
-  if(pose==='pinch'){p[4]={x:.55,y:.55,z:0};p[20]={x:.56,y:.55,z:0};p[8].y=.27;p[12].y=.27;p[16].y=.27}
+  const m=[5,9,13,17],pip=[6,10,14,18],tip=[8,12,16,20],xs=[.40,.46,.52,.58]
+  p[0]={x:.50,y:.82,z:0};p[2]={x:.36,y:.62,z:0};p[4]={x:.30,y:.55,z:0}
+  m.forEach((n,i)=>{p[n]={x:xs[i],y:.55,z:0};p[pip[i]]={x:xs[i],y:.43,z:0};p[tip[i]]={x:xs[i],y:.27,z:0}})
+  if(pose==='pinch'){
+    p[4]={x:.48,y:.54,z:0};p[tip[target]]={x:.48,y:.55,z:0}
+  }else if(pose==='fist'){
+    p[4]={x:.49,y:.59,z:0};tip.forEach((n,i)=>{p[n]={x:.48+(i%2)*.02,y:.61,z:0};p[pip[i]]={x:xs[i],y:.61,z:0}})
+  }else if(pose==='ily'){
+    p[4]={x:.49,y:.59,z:0}
+    for(const i of [1,2])p[tip[i]]={x:.48+(i-1)*.02,y:.61,z:0}
+  }else if(pose==='point'){
+    for(const i of [1,2,3]){p[tip[i]]={x:xs[i],y:.60,z:0};p[pip[i]]={x:xs[i],y:.60,z:0}}
+  }else if(pose==='relaxed'){
+    p[4]={x:.42,y:.55,z:0};p[tip[0]]={x:.46,y:.47,z:0}
+  }
   return p
 }
-test('word pinch fires once per closure, repeats after release',()=>{
-  const g=new GestureEngine(),pinch=hand('pinch'),open=hand('open')
-  assert.equal(g.update('Right',pinch,100,false,true).pinchIndex,null)
-  assert.equal(g.update('Right',pinch,160,false,true).pinchIndex,3)
-  assert.equal(g.update('Right',pinch,230,false,true).pinchIndex,null)
-  g.update('Right',open,300,false,true)
-  g.update('Right',pinch,360,false,true)
-  assert.equal(g.update('Right',pinch,420,false,true).pinchIndex,3)
+function updateAt(g,side,pose,time,opts={}){return g.update(side,hand(pose,opts.target??0),time,false,true,opts.love??false,opts.confidence??1,opts.category??'')}
+function firePinch(g,side,target,time){
+  updateAt(g,side,'pinch',time,{target})
+  const events=[]
+  for(let t=time+33;t<=time+198;t+=33){const result=updateAt(g,side,'pinch',t,{target});if(result.pinchIndex!==null)events.push(result.pinchIndex)}
+  return {events,nextTime:time+231}
+}
+test('A: 30 seconds of hands held naturally in view never speaks',()=>{
+  const g=new GestureEngine();let fired=0
+  for(const side of ['Left','Right'])updateAt(g,side,'open',0)
+  for(let t=33;t<30000;t+=33)for(const side of ['Left','Right']){const e=updateAt(g,side,'relaxed',t);if(e.pinchIndex!==null)fired++}
+  assert.equal(fired,0)
 })
-test('all four thumb-to-finger combinations trigger independently on either hand',()=>{
-  for(const side of ['Left','Right'])for(let i=0;i<4;i++){
-    const g=new GestureEngine(),pose=hand('open'),tip=[8,12,16,20][i]
-    pose[tip].y=.55;pose[4]={x:pose[tip].x,y:.55,z:0}
-    assert.equal(g.update(side,pose,100,false,true).pinchIndex,null)
-    assert.equal(g.update(side,pose,180,false,true).pinchIndex,i,`${side} finger ${i}`)
-    assert.equal(g.update(side,pose,250,false,true).pinchIndex,null)
+test('B: all eight mapped pinch words trigger 10/10 after an observed release',()=>{
+  for(const side of ['Left','Right'])for(let finger=0;finger<4;finger++){
+    const g=new GestureEngine();let t=0,fired=0
+    updateAt(g,side,'open',t);t+=33
+    for(let trial=0;trial<10;trial++){
+      const result=firePinch(g,side,finger,t);fired+=result.events.filter(i=>i===finger).length;t=result.nextTime
+      updateAt(g,side,'open',t);t+=33
+    }
+    assert.equal(fired,10,`${side} finger ${finger}`)
   }
+})
+test('C: a three-second held pinch fires once only',()=>{
+  const g=new GestureEngine();updateAt(g,'Right','open',0);let fired=0
+  for(let t=33;t<3033;t+=33){const e=updateAt(g,'Right','pinch',t,{target:2});if(e.pinchIndex!==null)fired++}
+  assert.equal(fired,1)
+})
+test('D: a clear release rearms the same word',()=>{
+  const g=new GestureEngine();updateAt(g,'Left','open',0)
+  const first=firePinch(g,'Left',0,33);updateAt(g,'Left','open',first.nextTime)
+  const second=firePinch(g,'Left',0,first.nextTime+33)
+  assert.equal(first.events.length,1);assert.equal(second.events.length,1)
+})
+test('E: open palm, fist, I Love You, point and ambiguous nearby fingers do not speak',()=>{
+  const poses=['open','fist','ily','point'];
+  for(const pose of poses){const g=new GestureEngine();updateAt(g,'Right','open',0);let fired=0
+    for(let t=33;t<1200;t+=33){const e=updateAt(g,'Right',pose,t,{love:pose==='ily',category:pose==='fist'?'Closed_Fist':''});if(e.pinchIndex!==null)fired++}
+    assert.equal(fired,0,pose)
+  }
+  const g=new GestureEngine();updateAt(g,'Left','open',0);const ambiguous=hand('pinch',0);ambiguous[8]={...ambiguous[20]}
+  let fired=0;for(let t=33;t<700;t+=33){const e=g.update('Left',ambiguous,t,false,true,false,1);if(e.pinchIndex!==null)fired++}
+  assert.equal(fired,0)
+})
+test('F: first-seen pinch, low confidence, rapid side changes and tracking loss require a fresh release',()=>{
+  const g=new GestureEngine();let fired=0
+  for(let t=0;t<500;t+=33)if(updateAt(g,'Left','pinch',t).pinchIndex!==null)fired++
+  assert.equal(fired,0)
+  updateAt(g,'Left','open',510)
+  for(let t=543;t<800;t+=33)if(updateAt(g,'Left','pinch',t,{confidence:.4}).pinchIndex!==null)fired++
+  assert.equal(fired,0)
+  updateAt(g,'Left','open',810);updateAt(g,'Left','pinch',843)
+  g.lost('Left',880)
+  updateAt(g,'Right','pinch',900)
+  for(let t=933;t<1300;t+=33)if(updateAt(g,'Right','pinch',t).pinchIndex!==null)fired++
+  assert.equal(fired,0)
+  updateAt(g,'Right','open',1310)
+  assert.equal(firePinch(g,'Right',1,1343).events.length,1)
+})
+test('a long inference gap cannot complete an old pinch candidate',()=>{
+  const g=new GestureEngine();updateAt(g,'Left','open',0);updateAt(g,'Left','pinch',33)
+  assert.equal(updateAt(g,'Left','pinch',250).pinchIndex,null)
+  assert.equal(firePinch(g,'Left',0,283).events.length,0)
 })
 test('point dwell lights only near wick, without a pinch word',()=>{
   const g=new GestureEngine(),point=hand('point')
