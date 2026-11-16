@@ -11,7 +11,7 @@ import './style.css'
 
 type Phase='unlit'|'lit'|'wished'
 type Burst={id:number;x:number;y:number;kind:'word'|'light'|'wish'}
-type DebugHand={side:Side;raw:string;gesture:GestureName;phase:string;distances:number[];reason:string;category:string;confidence:number;word:string;points:{x:number;y:number}[]}
+type DebugHand={side:Side;raw:string;gesture:GestureName;phase:string;distances:number[];thresholds:number[];reason:string;category:string;confidence:number;word:string;points:{x:number;y:number}[]}
 type CameraDiagnostics={videoWidth:number;videoHeight:number;settings:MediaTrackSettings;constraints:MediaTrackConstraints;cssWidth:number;cssHeight:number;coverScale:number;cropX:number;cropY:number;devicePixelRatio:number}
 type VoiceEvent={id:number;side:Side;finger:string;word:string;time:string;status:string}
 type Spark={x:number;y:number;vx:number;vy:number;life:number;size:number;color:string;kind:'heart'|'star';born:number;duration:number;targetX?:number;targetY?:number;variant?:number;rotation?:number}
@@ -167,7 +167,7 @@ function App(){
           if(event.light)light()
           if(event.pinchIndex!==null)speak(side,event.pinchIndex,index.x,index.y)
           if(side==='Right')setPointer(index)
-          if(debugRef.current||skeletonRef.current)debugList.push({side,raw,gesture:event.name,phase:event.pinchPhase,distances:event.distances,reason:event.reason,category:category?.categoryName||'—',confidence:handConfidence,word:lastWordRef.current[side],points:lm.map(p=>screenPoint(p,v))})
+          if(debugRef.current||skeletonRef.current)debugList.push({side,raw,gesture:event.name,phase:event.pinchPhase,distances:event.distances,thresholds:event.thresholds,reason:event.reason,category:category?.categoryName||'—',confidence:handConfidence,word:lastWordRef.current[side],points:lm.map(p=>screenPoint(p,v))})
           progress=Math.max(progress,event.lightProgress)
         })
         const loveResult=loveGate.current.update(!!loveHands.Left,!!loveHands.Right,now)
@@ -297,7 +297,7 @@ function App(){
       <div>手部模型：{handMode}</div><div>识别：{handsSeen.length?handsSeen.join(' / '):'等待手部'} · 真实右手：{rightLabel}</div>
       <button onClick={calibrate}>{isCalibrating?'请只举真实右手…':'校准真实右手'}</button><button onClick={()=>{rightRaw.current=rightRaw.current==='Right'?'Left':'Right';setRightLabel(rightRaw.current);gesture.current.reset();loveGate.current.reset()}}>切换左右映射</button>
       <label><input type="checkbox" checked={showSkeleton} onChange={e=>setShowSkeleton(e.target.checked)}/> 显示手部骨架</label>
-      {debugHands.map((h,i)=><div key={i} className="gesture-debug-row"><strong>{h.side}</strong> / 原始 {h.raw} · {h.phase} · {h.category} · {h.reason} · 置信 {Math.round(h.confidence*100)}%<br/><small>拇指到食指/中指/无名指/小拇指：{h.distances.map(value=>value.toFixed(2)).join(' / ')} · 阈值 {0.23} / 松开 {0.40} · 最近播报 {h.word||'—'}</small></div>)}
+      {debugHands.map((h,i)=><div key={i} className="gesture-debug-row"><strong>{h.side}</strong> / 原始 {h.raw} · {h.phase} · {h.category} · {h.reason} · 置信 {Math.round(h.confidence*100)}%<br/><small>拇指到四指距离：{h.distances.map(value=>value.toFixed(2)).join(' / ')} · 进入阈值 {h.thresholds.map(value=>value.toFixed(2)).join(' / ')} · 松开 {0.40} · 最近播报 {h.word||'—'}</small></div>)}
       <div><strong>最近手势触发：</strong>{lastTrigger?`${lastTrigger.side} + ${lastTrigger.finger} → “${lastTrigger.word}” · ${lastTrigger.time}`:'暂无'}</div>
       <div><strong>语音事件：</strong></div>{voiceEvents.slice().reverse().map(event=><div className="gesture-debug-row" key={event.id}>{event.time} · {event.side} + {event.finger} → “{event.word}” · {event.status}</div>)}
       <div>双手 🤟 保持 {Math.round(loveProgress*100)}%</div><div className="meter"><i style={{width:`${loveProgress*100}%`}}/></div><button onClick={()=>{emitHearts([{x:innerWidth*.42,y:innerHeight*.5},{x:innerWidth*.58,y:innerHeight*.5}]);setLoveText(true);magicSound();window.setTimeout(()=>setLoveText(false),2500)}}>预览爱心 ♡</button>
